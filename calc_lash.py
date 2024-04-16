@@ -1,7 +1,7 @@
 """Ford Valve Lash Bucket Calculator"""
 
-import copy
 import sys
+import time
 
 # Engine Parameters
 CYLINDERS = 4
@@ -28,6 +28,15 @@ BUCKETS = [0, 25, 50, 75, 100, 122, 142, 168, 182, 202, 222, 242, 262, 282, 302,
 BUCKET_INV = [302, 322, 342, 342, 342, 342, 362, 362, 362, 362, 362, 362, 362, 362, 382, 382, 402, 402, 402, 422, 422, 422, 422, 675]
 BUCKET_INV += CURRENT_BUCKETS
 BUCKET_INV.sort()
+
+ideal_buckets = []
+possible_buckets = []
+"""
+[
+    [(bucket, weight), ...],
+    ...
+]
+"""
 
 
 def bucket_to_in(bucket_id:int) -> float:
@@ -89,38 +98,38 @@ def select_possible_buckets(buckets:list[int], thickness_min_in:float, thickness
     return buckets[i1:i2+1]
 
 
-def iterate(choices_all_positions):
-    global c
+best_weight = None
+def iterate_choices_best(pos, current_choices, current_weight, combos):
+    """Attempt #2 -- skip checking some branches by keeping track of the best total weight so far"""
 
-    if len(choices_all_positions) == 1:
-        # no more choices to make, return each choice for this position
-        combos = [[c] for c in choices_all_positions[0]]
-        c += len(combos)
-        print(f'\r{c}', end='')
-        sys.stdout.flush()
-        return combos
+    global best_weight, possible_buckets
 
-    # iterate through all choices per position
-    combos_this_position = []
-    for choice in choices_all_positions[0]:
-        choices_following_positions = copy.deepcopy(choices_all_positions[1:])
+    if pos >= len(possible_buckets):
+        # no more choices to make, add this combo to list
 
-        # if we're making a choice, remove it from all following choices
-        if choice is not None:
-            # remove choice from next choices
-            for position in range(len(choices_following_positions)):
-                if choice in choices_following_positions[position]:
-                    choices_following_positions[position].remove(choice)
+        combos.append((current_weight, current_choices))
 
-        # iterate through choices for next position
-        combos_following_positions = iterate(choices_following_positions)
+        # record weight if it's the best we've seen so far
+        if best_weight is None or current_weight < best_weight:
+            best_weight = current_weight
+            print(f'New best weight is {best_weight}')
 
-        # add current choice to each combo for following positions
-        for combo in combos_following_positions:
-            combo.insert(0, choice)
-            combos_this_position.append(combo)
+        return
 
-    return combos_this_position
+    # iterate through choices for current position
+    for i in range(len(possible_buckets[pos])):
+        c = possible_buckets[pos][i][0]
+        w = possible_buckets[pos][i][1]
+
+        if best_weight is not None and current_weight + w >= best_weight:
+            # we're already worst than other combo, so skip this branch
+            continue
+
+        if c is not None and c in current_choices:
+            # choice already selected, skip
+            continue
+
+        iterate_choices_best(pos + 1, current_choices + [c], current_weight + w, combos)
 
 
 if __name__ == "__main__":
@@ -130,10 +139,6 @@ if __name__ == "__main__":
     print(f'Exhaust range: {EXHAUST_MIN:.04f} - {EXHAUST_MAX:.04f} in')
     print("")
 
-    ideal_buckets = []
-    possible_buckets = []
-    possible_deviations = []
-
     # for intake valves, calculate ideal bucket and possible buckets in inventory
     print("Intake:")
     i = 0
@@ -141,23 +146,22 @@ if __name__ == "__main__":
         valve_dist = bucket_to_in(bucket) + lash
         ideal_bucket = select_closest_bucket(BUCKETS, valve_dist - INTAKE_TARGET)
         possible = select_possible_buckets(BUCKET_INV, valve_dist - INTAKE_MAX, valve_dist - INTAKE_MIN)
-        deviations = [valve_dist - bucket_to_in(b) - INTAKE_TARGET for b in possible]
+        possible_with_dev = [(c, int(round(abs(valve_dist - bucket_to_in(c) - INTAKE_TARGET)*100000))) for c in possible]
 
-        possible_uniq = list(set(possible))
-        possible_uniq.sort()
+        # sort possible by deviation
+        possible_with_dev.sort(key=lambda c: c[1])
+
+        #possible_uniq = list(set(possible))
+        #possible_uniq.sort()
         print(f'#{i+1}\tValve Distance: {valve_dist:.04f} in')
         print(f'\tIdeal: {ideal_bucket}')
-        print(f"\tPossible: {possible_uniq}")
-        #for p in possible_uniq:
-        #    print(f'\t\t{p}\tlash = {valve_dist - bucket_to_in(p):.04f} in')
+        #print(f"\tPossible: {possible_uniq}")
 
         # add no choice (purchase) option
-        possible.append(None)
-        deviations.append(0)
+        possible_with_dev.append((None, 10000))
 
         ideal_buckets.append(ideal_bucket)
-        possible_buckets.append(possible)
-        possible_deviations.append(deviations)
+        possible_buckets.append(possible_with_dev)
 
         i += 1
         print("")
@@ -171,83 +175,45 @@ if __name__ == "__main__":
         valve_dist = bucket_to_in(bucket) + lash
         ideal_bucket = select_closest_bucket(BUCKETS, valve_dist - EXHAUST_TARGET)
         possible = select_possible_buckets(BUCKET_INV, valve_dist - EXHAUST_MAX, valve_dist - EXHAUST_MIN)
-        deviations = [valve_dist - bucket_to_in(b) - EXHAUST_TARGET for b in possible]
+        possible_with_dev = [(c, int(round(abs(valve_dist - bucket_to_in(c) - INTAKE_TARGET)*100000))) for c in possible]
+        
+        # sort possible by deviation
+        possible_with_dev.sort(key=lambda c: c[1])
 
-        possible_uniq = list(set(possible))
-        possible_uniq.sort()
+        #possible_uniq = list(set(possible))
+        #possible_uniq.sort()
         print(f'#{i+1}\tValve Distance: {valve_dist:.04f} in')
         print(f'\tIdeal: {ideal_bucket}')
-        print(f"\tPossible: {possible_uniq}")
-        #for p in possible_uniq:
-        #    print(f'\t\t{p}\tlash = {valve_dist - bucket_to_in(p):.04f} in')
+        #print(f"\tPossible: {possible_uniq}")
 
         # add no choice (purchase) option
-        possible.append(None)
-        deviations.append(0)
+        possible_with_dev.append((None, 10000))
 
         ideal_buckets.append(ideal_bucket)
-        possible_buckets.append(possible)
-        possible_deviations.append(deviations)
+        possible_buckets.append(possible_with_dev)
 
         i += 1
         print("")
 
-    # iterate through possible bucket choices to build list of all combinations
-    num_combos = 1
-    for p in possible_buckets:
-        num_combos *= len(p)
-    print(f'{num_combos} combinations (at most)')
+    print("Possible buckets = [")
+    for b in possible_buckets:
+        print(f'\t{[c[0] for c in b]}')
+    print("]\n")
+
+    print("Possible deviations = [")
+    for b in possible_buckets:
+        print(f'\t{[c[1] for c in b]}')
+    print("]\n")
 
     combos = []
-    purchases = []
-    total_deviations = []
+    s = time.perf_counter()
+    iterate_choices_best(0, [], 0, combos)
+    e = time.perf_counter()
 
-    print("Calculating combinations")
-    print("0", end='')
-    sys.stdout.flush()
-    c = 0
-    combos = iterate(possible_buckets)
-    print(f'{len(combos)} actual combinations')
+    print(f'Iteration took {e - s:.06f} sec')
+    print("")
 
-    # determine number of purchases and deviations for each combo
-    # for combo in combos:
-    #     purchases.append(combo.count(None))
-    #     total_dev = 0
-    #     for i, bucket in enumerate(combo):
-    #         if bucket is not None:
-    #             total_dev += possible_deviations[i][possible_buckets[i].index(bucket)]
-    #     total_deviations.append(total_dev)
-
-
-"""
-rules:
-- for each position, there are a list of possible choices, which is a subset of total choices
-- for each position, choose from possible choices, or make no choice (in that case, purchase ideal bucket)
-- choices are made without replacement from the list of total choices
-- for each choice, deviation is calculated
-
-p_1 = [
-    c_1         d_1
-    c_2         d_2
-    c_n         d_n
-    no choice   0
-]
-
-p_2 = [
-    c_1         d_1
-    c_2         d_2
-    c_n         d_n
-    no choice   0
-]
-
-p_n = [
-    c_1         d_1
-    c_2         d_2
-    c_n         d_n
-    no choice   0
-]
-
-
-best solution:
-sort by fewest no choices (purchases), then sort by lowest total deviation
-"""
+    print("Best Combos:")
+    for i in range(len(combos)):
+        print(f'{combos[i][0]}\t{combos[i][1]}')
+    print("")
