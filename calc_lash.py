@@ -112,7 +112,7 @@ def iterate_choices_best(pos, current_choices, current_weight, combos):
         # record weight if it's the best we've seen so far
         if best_weight is None or current_weight < best_weight:
             best_weight = current_weight
-            print(f'New best weight is {best_weight}')
+            print(current_weight, current_choices)
 
         return
 
@@ -210,10 +210,10 @@ if __name__ == "__main__":
     iterate_choices_best(0, [], 0, combos)
     e = time.perf_counter()
 
+    print("")
     print(f'Iteration took {e - s:.06f} sec')
-    print("")
 
-    print("Best Combos:")
-    for i in range(len(combos)):
-        print(f'{combos[i][0]}\t{combos[i][1]}')
-    print("")
+    # print("Best Combos:")
+    # for i in range(len(combos)):
+    #     print(f'{combos[i][0]}\t{combos[i][1]}')
+    # print("")
