@@ -29,6 +29,8 @@ BUCKET_INV += CURRENT_BUCKETS
 BUCKET_INV.sort()
 
 # Bucket Choices for each valve
+IDEAL_BUCKETS = []
+
 # Note: each choice must be universally unique, so the index for
 # the bucket in BUCKET_INV is used instead of the actual bucket ID
 CHOICES = []
@@ -38,7 +40,8 @@ CHOICES = []
         <valve index>,
         <number of choices>,
         [<list of choices>],
-        [<list of weights>]
+        [<list of weights>],
+        <minimum weight>
     ),
     ...
 ]
@@ -137,64 +140,101 @@ def generate_choices(valve_index:int, bucket:int, lash:float, lash_min:float, la
     # split apart into possible choices and weights (deviations)
     possible_choices = [p[0] for p in possible_with_w]
     possible_weights = [p[1] for p in possible_with_w]
+    min_weight = min(possible_weights)
 
     # print out valve data
-    print(f'#{valve_index}\tIdeal: {ideal_bucket}')
-    print(f'\t{possible_choices}')
-    print(f'\t{possible_weights}')
+    print(f'#{valve_index + 1}\tIdeal: {ideal_bucket}')
+    print(f'\tChoices: {possible_choices}')
+    print(f'\tWeights: {possible_weights}')
     print("")
 
     # sanity check
     assert len(possible_choices) == len(possible_weights)
 
     # add to choices list
-    CHOICES.append((valve_index, len(possible_choices), possible_choices, possible_weights))
+    IDEAL_BUCKETS.append(ideal_bucket)
+    CHOICES.append((valve_index, len(possible_choices), possible_choices, possible_weights, min_weight))
+
+
+def map_choices_to_values(choices:list[int]) -> list[int]:
+    """
+    Map a list of choices (bucket indicies in BUCKET_INV) to a list of bucket ids in order of valves
+    """
+
+    mapped_choices = [(CHOICES[i][0], BUCKET_INV[j] if j is not None else None) for i, j in enumerate(choices)]
+    mapped_choices.sort(key=lambda v: v[0])
+
+    return [v[1] for v in mapped_choices]
 
 
 #### OPTIMIZATION FUNCTION ####
 
-# (global variable) best combo seen so far
+# global variables
+current_choices = [0] * NUM_VALVES  # temp list for current choices made so far
 best_weight = None
 best_choices = None
 
-def iterate_choices(pos, current_weight, *current_choices):
+def iterate_choices(pos, prev_weight) -> bool:
     """
     pos: Current index in CHOICES
-    current_weight: Total weight of choices made so far
-    current_choices: List of choices made so far (as vargs for speed)
+    prev_weight: Total weight of choices made so far
+
+    Returns True if a new best combo is found
     """
 
     global best_weight, best_choices
 
+    #time.sleep(1)
+    #print(prev_weight, current_choices[:pos+1], "\033[K\r", end="")
+
     if pos == NUM_VALVES:
         # no more choices to make, check this combo
         # if it's the best we've seen so far, update best_weight and print it out
-        if best_weight is None or current_weight < best_weight:
-            best_weight = current_weight
-            best_choices = current_choices
-            print(f'w = {current_weight}\tc = {current_choices}')
+        if best_weight is None or prev_weight < best_weight:
+            best_weight = prev_weight
+            best_choices = current_choices[:]
+            print(prev_weight, map_choices_to_values(current_choices))
+            return True
 
-        return
+        return False
 
     # recurse through choices for current position
     for i in range(CHOICES[pos][1]):
         c = CHOICES[pos][2][i]
         w = CHOICES[pos][3][i]
+        current_choices[pos] = c
+        current_weight = prev_weight + w
 
-        if best_weight is not None and current_weight + w >= best_weight:
-            # we're not any better than prev. combo, so skip this branch
-            continue
+        if best_weight is not None:
+            if current_weight >= best_weight:
+                # already we're not better than best
+                # since choices are pre-sorted, latter choices are same or worse
+                # so skip rest of this branch
+                break
 
-        if c is not None and c in current_choices:
+            min_total_weight = current_weight + sum([CHOICES[p][4] for p in range(pos+1,NUM_VALVES)])
+            if min_total_weight >= best_weight:
+                # lower bound of total_weight for this branch is not better
+                # not possible for this branch to have a better combo
+                # since choices are pre-sorted, latter choices are same or worse
+                # so skip rest of choices for this position
+                break
+
+        if c is not None and c in current_choices[:pos]:
             # choice already selected, skip
             continue
 
-        iterate_choices(pos + 1, current_weight + w, *current_choices, c)
+        if iterate_choices(pos + 1, current_weight):
+            # since choices are pre-sorted, latter choices are same or worse
+            # so if we find a new best, skip rest of choices for this position
+            break
+
+    return False
 
 
-#### SCRIPT ENTRYPOINT ####
+#### MAIN ####
 
-if __name__ == "__main__":
+def main():
     print("Ford Duratec/Ecoboost Valve Lash Calculator")
     print("")
     print(f'Intake lash: range {INTAKE_MIN:.04f} - {INTAKE_MAX:.04f} in, target {INTAKE_TARGET:.04f} in')
@@ -210,7 +250,6 @@ if __name__ == "__main__":
     print("")
 
     print("Exhaust Valves:")
-    i = 0
     for bucket, lash in zip(CURRENT_BUCKETS[NUM_VALVES // 2:], CURRENT_LASH[NUM_VALVES // 2:]):
         generate_choices(i, bucket, lash, EXHAUST_MIN, EXHAUST_MAX, EXHAUST_TARGET)
         i += 1
@@ -223,21 +262,38 @@ if __name__ == "__main__":
     CHOICES.sort(key=lambda v: v[1])
 
     # run optimization function to iterate through choices
-    print("Calculating best combos...")
+    print("Calculating best combos (lower weight is better)...")
+    print("")
     s = time.perf_counter()
     iterate_choices(0, 0)
     e = time.perf_counter()
 
     print("")
+    print("Done.")
     print(f'Iteration took {e - s:.06f} sec')
-
-    # map best choices back to valve index and bucket ID, and reorder by valve index
-    best_choices_mapped = [(CHOICES[i][0], BUCKET_INV[j]) for i, j in enumerate(best_choices)]
-    best_choices_mapped.sort(key=lambda v: v[0])
-
-    # print out the best combo
-    print("Best combo:")
-    print(f'\tWeight: {best_weight:.04f}')
-    for v in best_choices_mapped:
-        print(f'\t#{v[0]}\t{v[1]}')
     print("")
+
+    # print out best choices
+    print("Best Solution:")
+    best_choices_mapped = map_choices_to_values(best_choices)
+
+    for i, c in enumerate(best_choices_mapped):
+        print(f'#{i + 1}\t{c if c is not None else IDEAL_BUCKETS[i]}')
+    print("")
+
+    if best_choices_mapped.count(None) == 0:
+        print("No need to purchase buckets.")
+    else:
+        print("Purchase the following buckets:")
+        purchases = []
+        for i, c in enumerate(best_choices_mapped):
+            if c is None:
+                # purchase ideal bucket for valve
+                purchases.append(IDEAL_BUCKETS[i])
+        print(f'{purchases}')
+    print("")
+
+
+
+if __name__ == "__main__":
+    main()
