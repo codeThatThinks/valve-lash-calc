@@ -129,13 +129,13 @@ def generate_choices(valve_index:int, bucket:int, lash:float, lash_min:float, la
     valve_dist = bucket_to_in(bucket) + lash
     ideal_bucket = select_closest_bucket(BUCKETS, valve_dist - lash_target)
     possible = select_possible_buckets_from_inventory(valve_dist - lash_max, valve_dist - lash_min)
-    possible_with_w = [(c, int(round(abs(valve_dist - bucket_to_in(c) - lash_target), 4) * 10000)) for c in possible]
+    possible_with_w = [(c, int(round(abs(valve_dist - bucket_to_in(BUCKET_INV[c]) - lash_target), 4) * 10000)) for c in possible]
 
     # sort possible choices from lowest to highest weight
     possible_with_w.sort(key=lambda p: p[1])
 
     # add no choice (purchase) option
-    possible_with_w.append((None, 10000))
+    possible_with_w.append((None, 1000))
 
     # split apart into possible choices and weights (deviations)
     possible_choices = [p[0] for p in possible_with_w]
